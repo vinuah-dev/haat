@@ -455,3 +455,46 @@ body[data-layout='mobile'] .coach-bubble { width: calc(100vw - 16px); padding: 1
 body[data-layout='mobile'] .coach-bubble h3 { font-size: 18px; }
 body[data-layout='mobile'] .coach-bubble p { font-size: 14.5px; }
 body[data-layout='mobile'] .cine-narr { font-size: 13.5px; }
+
+/* ---------- round: Auto / Next and the explanation ---------- */
+.cine-ctrl { display: flex; gap: 8px; align-items: center; }
+.cine-auto { border: 2px solid var(--line); background: var(--panel); border-radius: 10px; padding: 5px 12px; cursor: pointer; font-family: var(--display); }
+.cine-auto[aria-pressed='true'] { border-color: var(--good); color: var(--good); }
+.cine-next { padding: 8px 18px; animation: breathe 1.6s ease-in-out infinite; }
+.cine-explain {
+  margin: 4px 0 10px; padding: 10px 14px; border-radius: 14px; background: var(--panel-2); font-size: 14px;
+  animation: fade .3s ease; max-height: 38vh; overflow-y: auto;
+}
+.cine-explain h4 { margin: 0 0 4px; font-family: var(--display); font-size: 16px; }
+.cine-explain ul { margin: 0; padding-left: 18px; }
+.cine-explain li { margin: 3px 0; }
+.cine-explain p { margin: 0; }
+.cine-explain .you { margin-top: 8px; padding: 8px 10px; border-radius: 10px; background: color-mix(in srgb, var(--accent-2) 24%, var(--panel)); }
+.cine-explain .legend { color: var(--muted); }
+.cine-stamp.docked {
+  animation: none; opacity: 1; top: 16px; left: auto; right: 18px; translate: none; font-size: 20px; border-width: 3px;
+  padding: 2px 12px; transform: rotate(-4deg); transition: all .35s ease;
+}
+.cine.paused .cine-step { visibility: hidden; }
+.cine.paused .judged .card[data-result='won'] { transform: translateY(-3px); }
+body[data-layout='mobile'] .cine-stamp.docked { position: absolute; top: 14px; right: 12px; margin: 0; font-size: 15px; bottom: auto; }
+body[data-layout='mobile'] .cine-explain { font-size: 13.5px; max-height: 32vh; }
+body[data-layout='mobile'] .cine-foot { flex-wrap: wrap; gap: 6px; }
+body[data-layout='mobile'] .cine-ctrl { width: 100%; justify-content: space-between; }
+body[data-layout='mobile'] .cine-next { flex: 1; }
+/* Keep the explanation and the Next button in view: explanation above the cards, controls pinned to the bottom. */
+.cine-panel { max-height: calc(100vh - 32px); overflow-y: auto; display: flex; flex-direction: column; }
+.cine-head { order: 1; }
+.cine-narr { order: 2; }
+.cine-explain { order: 3; }
+.cine-deck { order: 4; }
+.cine-stamp { order: 5; }
+.cine-foot { order: 6; position: sticky; bottom: -14px; background: var(--panel); padding: 8px 0 2px; z-index: 2; }
+body[data-layout='mobile'] .cine-foot { bottom: calc(-14px - env(safe-area-inset-bottom)); padding-bottom: 4px; }
+.cine-explain, body[data-layout='mobile'] .cine-explain { max-height: none; overflow: visible; }
+.cine-foot, body[data-layout='mobile'] .cine-foot { bottom: 0; flex-wrap: nowrap; }
+body[data-layout='mobile'] .cine-panel { padding-bottom: 0; }
+body[data-layout='mobile'] .cine-foot { padding: 8px 0 calc(10px + env(safe-area-inset-bottom)); }
+body[data-layout='mobile'] .cine-count { display: none; }
+body[data-layout='mobile'] .cine-ctrl { width: 100%; }
+body[data-layout='mobile'] .cine-auto, body[data-layout='mobile'] .cine-skip { padding: 6px 9px; font-size: 13px; white-space: nowrap; }

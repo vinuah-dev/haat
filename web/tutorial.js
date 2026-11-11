@@ -87,8 +87,8 @@ export const TUTORIAL = [
     target: '[data-action="submit"]',
     title: { en: 'Seal your offer', hi: 'Offer seal karo' },
     text: {
-      en: 'Every offer goes into a sealed envelope (only a hash is posted), so nobody can copy anyone’s price. Press <b>Seal</b>.',
-      hi: 'Har offer band lifaafe mein jaata hai (sirf ek hash dikhta hai), toh koi kisi ka price copy nahi kar sakta. <b>Seal</b> dabao.',
+      en: 'Every offer goes into a sealed envelope (only a hash is posted), so nobody can copy anyone’s price. Press <b>Seal</b>. Next you will see every market open up, one at a time. Each one stops on its result and explains it; press <b>Next round</b> when you have read it.',
+      hi: 'Har offer band lifaafe mein jaata hai (sirf ek hash dikhta hai), toh koi kisi ka price copy nahi kar sakta. <b>Seal</b> dabao. Uske baad har market ek-ek karke khulega. Har market apne result pe rukega aur samjhayega; padh lo, phir <b>Agla round</b> dabao.',
     },
     require: day1Ready,
     waitFor: 'sealed',
@@ -107,8 +107,15 @@ export const TUTORIAL = [
     tab: 'market',
     title: { en: 'The receipt', hi: 'Hisaab' },
     text: {
-      en: 'Each market’s result is here: every ask and bid, who got what, and the price. Find the line that says <b>You</b>.',
-      hi: 'Har market ka hisaab yahan hai: har ASK aur BID, kisko kya mila, aur price. <b>You</b> wali line dhoondo.',
+      en: 'Each market’s result stays here: every ask and bid, who got what, and the price. Find the line that says <b>You</b>.',
+      hi: 'Har market ka hisaab yahan rehta hai: har ASK aur BID, kisko kya mila, aur price. <b>You</b> wali line dhoondo.',
+    },
+  },
+  {
+    title: { en: 'Auto or step by step', hi: 'Auto ya ek-ek karke' },
+    text: {
+      en: 'In the tutorial every market stops so you can read it. In the real game the round screen has an <b>Auto</b> button: <b>on</b> plays all markets by themselves, <b>off</b> stops on each result until you press <b>Next round</b>. Your choice is remembered.',
+      hi: 'Tutorial mein har market rukta hai taaki tum padh sako. Asli game mein round screen pe <b>Auto</b> button hai: <b>on</b> = saare market apne aap chalenge, <b>off</b> = har result pe rukega jab tak tum <b>Agla round</b> na dabao. Tumhari choice yaad rahegi.',
     },
   },
   { waitFor: 'morning', hidden: true },

@@ -44,6 +44,13 @@ carts). PC and phone get different layouts: a wide street with a side board
 on PC; a two-row square, a bottom tab bar and a bottom-sheet round with
 vibration on phones. Sound is synthesized in the browser and can be muted.
 
+Every round has an **Auto** switch. On, the markets play one after another.
+Off, each market stops on its result: the stamp moves aside so every card can
+be read, a legend explains ASK, BID and `units @ price`, and a line says how
+your own offer did and why (all sold, partly sold because demand ran out,
+priced above the market, or beaten by cheaper asks). **Next round** moves on.
+The choice is remembered; the tutorial always stops on every round.
+
 ## How a day works
 
 1. Buyers who need the same good form a swarm. Only total demand is public.

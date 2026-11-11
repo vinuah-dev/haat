@@ -185,7 +185,7 @@ async function nextDay(body = {}) {
   const speed = mode === 'watch' ? 1.8 : mode === 'tutorial' ? 0.7 : 1;
   const narrate = mode === 'tutorial' ? Object.fromEntries(Object.entries(NARRATION).map(([k, v]) => [k, v[coach.lang] ?? v.en])) : null;
   scene.setTime('dusk');
-  await playDay(day, { me: isPlay(), speed, narrate });
+  await playDay(day, { me: isPlay(), speed, narrate, lang: coach.lang, manual: mode === 'tutorial', explain: mode === 'tutorial' });
   if (state.id !== id) return; // another game started meanwhile
   scene.setSellers(state.stallOrder, state.sellers, isPlay());
   await scene.settle(day, { speed, sfx });
