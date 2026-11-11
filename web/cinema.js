@@ -9,7 +9,7 @@ import { sfx } from './sfx.js';
 const esc = (s) => String(s).replace(/[&<>"']/g, (c) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' })[c]);
 const short = (h) => `${h.slice(0, 5)}…${h.slice(-3)}`;
 const mobile = () => document.body.dataset.layout === 'mobile';
-const buzz = (p) => mobile() && navigator.vibrate?.(p);
+const buzz = (p) => mobile() && navigator.userActivation?.hasBeenActive && navigator.vibrate?.(p);
 
 const EVENT_ICON = { drought: '☀️', festival: '🎉', 'new-road': '🛤️' };
 
@@ -29,6 +29,7 @@ function ensureRoot() {
         <div class="cine-title"><h2></h2><p></p></div>
         <span class="cine-step"></span>
       </div>
+      <div class="cine-narr" hidden></div>
       <div class="cine-deck"></div>
       <div class="cine-stamp" aria-live="polite"></div>
       <div class="cine-foot"><span class="cine-count"></span><button type="button" class="cine-skip">Skip ▸▸</button></div>
@@ -61,7 +62,7 @@ function cardHtml(r, c, reveal, filled, me) {
 }
 
 /** Play every round of a finished day. Resolves when done or skipped. */
-export async function playDay(day, { me = true, speed = 1 } = {}) {
+export async function playDay(day, { me = true, speed = 1, narrate = null } = {}) {
   if (!day.rounds.length) return;
   const el = ensureRoot();
   const t = (ms) => (reducedMotion() ? Math.min(ms, 150) : ms) / speed;
@@ -72,6 +73,9 @@ export async function playDay(day, { me = true, speed = 1 } = {}) {
   const deck = el.querySelector('.cine-deck');
   const stamp = el.querySelector('.cine-stamp');
   const step = el.querySelector('.cine-step');
+  const narr = el.querySelector('.cine-narr');
+  narr.hidden = !narrate;
+  const say = (k) => { if (narrate) narr.textContent = narrate[k]; };
 
   for (const [i, r] of day.rounds.entries()) {
     if (skipping) break;
@@ -91,6 +95,7 @@ export async function playDay(day, { me = true, speed = 1 } = {}) {
 
     // 1. deal sealed cards
     step.textContent = 'Sealed offers';
+    say('deal');
     for (const c of cards) {
       if (skipping) break;
       c.classList.add('dealt');
@@ -102,6 +107,7 @@ export async function playDay(day, { me = true, speed = 1 } = {}) {
 
     // 2. reveal
     step.textContent = 'Reveal!';
+    say('reveal');
     for (const c of cards) {
       if (skipping) break;
       c.classList.add('flipped');
@@ -113,6 +119,7 @@ export async function playDay(day, { me = true, speed = 1 } = {}) {
 
     // 3. clear
     step.textContent = 'Clearing';
+    say('clear');
     deck.classList.add('judged');
     await wait(t(250));
     if (r.price === null) {

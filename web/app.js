@@ -1,9 +1,11 @@
 // Haat web client. All market logic runs on the server; this file is the game around it.
 
 import { dayIntro, playDay } from './cinema.js';
+import { Coach } from './coach.js';
 import { confetti, countUp, floatText, sleep, toast } from './fx.js';
 import { GOOD_ICON, Scene } from './scene.js';
 import { sfx } from './sfx.js';
+import { NARRATION, TUTORIAL } from './tutorial.js';
 
 const app = document.getElementById('app');
 const statsEl = document.getElementById('stats');
@@ -20,6 +22,20 @@ let busy = false;
 let autoplay = false;
 let tab = 'stall'; // phone only: stall | market | town
 let shown = { coins: null, score: null };
+
+const coach = new Coach();
+/** The tutorial is played like a normal stall, with a coach on top. */
+const isPlay = () => mode !== 'watch';
+const tutorialDone = () => { try { return localStorage.getItem('haat-tutorial') === 'done'; } catch { return false; } };
+const coachCtx = {
+  moves: () => moves,
+  layout: () => layout(),
+  setTab: (t) => { tab = t; render(); },
+  onFinish: () => {
+    try { localStorage.setItem('haat-tutorial', 'done'); } catch {}
+    startGame('play');
+  },
+};
 
 const esc = (s) => String(s).replace(/[&<>"']/g, (c) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' })[c]);
 const short = (h) => (h.length > 14 ? `${h.slice(0, 6)}…${h.slice(-4)}` : h);
@@ -45,7 +61,7 @@ async function call(method, path, body) {
 }
 
 function syncScene(gather = false) {
-  scene.setSellers(state.stallOrder, state.sellers, mode === 'play');
+  scene.setSellers(state.stallOrder, state.sellers, isPlay());
   scene.setBuyers(state.buyers);
   scene.setEvents(state.today ? state.today.events.map((e) => e.name) : []);
   scene.setTime(state.finished ? 'dusk' : 'day');
@@ -61,7 +77,7 @@ async function showTitle() {
   if (saved?.id) {
     try {
       resumable = await call('GET', `/api/games/${saved.id}`);
-      if (resumable.finished) resumable = null;
+      if (resumable.finished || resumable.mode === 'tutorial') resumable = null;
     } catch {}
   }
   titleEl.innerHTML = `
@@ -70,8 +86,10 @@ async function showTitle() {
       <h1>Haat</h1>
       <p>A market town run by AI agents with their own wallets.<br>Out-trade them for ten days.</p>
       <div class="title-buttons">
-        ${resumable ? `<button class="btn big" data-title="continue">Continue · day ${resumable.day} ${resumable.mode === 'watch' ? '(watching)' : ''}</button>` : ''}
-        <button class="btn ${resumable ? 'ghost' : 'big'}" data-title="play">🧺 Run a stall</button>
+        ${!tutorialDone() ? '<button class="btn big" data-title="tutorial">🎓 Start here: tutorial</button>' : ''}
+        ${resumable ? `<button class="btn ${tutorialDone() ? 'big' : 'ghost'}" data-title="continue">Continue · day ${resumable.day} ${resumable.mode === 'watch' ? '(watching)' : ''}</button>` : ''}
+        <button class="btn ${resumable || !tutorialDone() ? 'ghost' : 'big'}" data-title="play">🧺 Run a stall</button>
+        ${tutorialDone() ? '<button class="btn ghost" data-title="tutorial">🎓 Replay tutorial</button>' : ''}
         <button class="btn ghost" data-title="watch">👀 Watch the swarm</button>
       </div>
       <small>20 buyers · 5 sellers · sealed bids · one price clears each market</small>
@@ -96,6 +114,8 @@ function setModeTabs() {
 
 async function startGame(nextMode = mode) {
   stopAuto();
+  coach.stop();
+  busy = false; // a day of the previous game may still be animating; it stops itself when it sees the new game
   mode = nextMode;
   setModeTabs();
   app.innerHTML = '<p class="loading">Opening the market…</p>';
@@ -112,11 +132,15 @@ async function startGame(nextMode = mode) {
   resetMoves();
   syncScene();
   render();
+  const id = state.id;
   await morning();
+  if (state.id !== id) return;
   if (mode === 'watch') startAuto();
+  if (mode === 'tutorial') coach.start(TUTORIAL, coachCtx);
 }
 
 function loadGame(s) {
+  busy = false;
   state = s;
   mode = s.mode;
   setModeTabs();
@@ -127,52 +151,69 @@ function loadGame(s) {
 }
 
 async function morning() {
+  if (!state?.today) return;
   scene.setTime('dawn');
   await sleep(250);
   scene.setTime('day');
-  await dayIntro(state.today, { speed: mode === 'watch' ? 1.6 : 1 });
-  scene.gather(state.today.swarms);
+  const today = state.today;
+  await dayIntro(today, { speed: mode === 'watch' ? 1.6 : 1 });
+  scene.gather(today.swarms);
 }
 
 async function nextDay(body = {}) {
   if (busy || !state || state.finished) return;
+  if (mode === 'tutorial' && !coach.allows('sealed')) {
+    toast(coach.lang === 'hi' ? '👉 Pehle tutorial ka ye step poora karo' : '👉 Finish this tutorial step first');
+    return;
+  }
+  const id = state.id;
   busy = true;
   render();
   sfx.seal();
+  if (mode === 'tutorial') coach.emit('sealed');
   const before = state.player;
   try {
-    state = await call('POST', `/api/games/${state.id}/day`, body);
+    const next = await call('POST', `/api/games/${id}/day`, body);
+    if (state.id !== id) return;
+    state = next;
   } catch (e) {
     toast(`⚠️ ${esc(e.message)}`);
     busy = false;
     return render();
   }
   const day = state.days[state.days.length - 1];
-  const speed = mode === 'watch' ? 1.8 : 1;
+  const speed = mode === 'watch' ? 1.8 : mode === 'tutorial' ? 0.7 : 1;
+  const narrate = mode === 'tutorial' ? Object.fromEntries(Object.entries(NARRATION).map(([k, v]) => [k, v[coach.lang] ?? v.en])) : null;
   scene.setTime('dusk');
-  await playDay(day, { me: mode === 'play', speed });
-  scene.setSellers(state.stallOrder, state.sellers, mode === 'play');
+  await playDay(day, { me: isPlay(), speed, narrate });
+  if (state.id !== id) return; // another game started meanwhile
+  scene.setSellers(state.stallOrder, state.sellers, isPlay());
   await scene.settle(day, { speed, sfx });
+  if (state.id !== id) return;
   shownDay = null;
   resetMoves();
   busy = false;
-  if (mode === 'play') {
+  if (isPlay()) {
     tab = 'market';
     summarize(day, before);
   }
   render();
+  if (mode === 'tutorial') await coach.emit('dayDone'); // the coach explains the results before the day moves on
+  if (state.id !== id) return; // the player left this game meanwhile
   if (state.finished) {
     stopAuto();
     scene.setTime('night');
-    if (mode === 'play') showEnd();
+    if (isPlay()) showEnd();
     return;
   }
   scene.setTime('night');
   await sleep(mode === 'watch' ? 300 : 500);
+  if (state.id !== id) return;
   syncScene();
-  if (mode === 'play') tab = 'stall';
+  if (isPlay()) tab = 'stall';
   render();
   await morning();
+  if (mode === 'tutorial' && state.id === id) coach.emit('morning');
 }
 
 function summarize(day, before) {
@@ -249,7 +290,7 @@ function render() {
   const latest = state.days[state.days.length - 1];
   const day = shownDay ?? latest?.day ?? null;
   const shownLog = state.days.find((d) => d.day === day);
-  const main = mode === 'play' ? stallView() : watchView();
+  const main = isPlay() ? stallView() : watchView();
   const results = shownLog ? resultsView(shownLog) : '<p class="muted empty">No market has run yet. Results show here after the first day.</p>';
   const side = `${boardView()}<div class="panel">${document.getElementById('how').innerHTML}</div>`;
 
@@ -257,29 +298,31 @@ function render() {
     const current = mode === 'watch' && tab === 'stall' ? 'market' : tab;
     const body = current === 'stall' ? main : current === 'market' ? (mode === 'watch' ? watchBar() : '') + results : side;
     const tabs = [
-      ...(mode === 'play' ? [['stall', '🧺', 'Stall']] : []),
+      ...(isPlay() ? [['stall', '🧺', 'Stall']] : []),
       ['market', '⚖️', 'Market'],
       ['town', '🏆', 'Town'],
     ];
     app.innerHTML = `<div class="m-body">${body}</div>
-      ${mode === 'play' && current === 'stall' && state.today ? sealBar() : ''}
+      ${isPlay() && current === 'stall' && state.today ? sealBar() : ''}
       <nav class="tabbar">${tabs.map(([k, i, l]) => `<button data-tab="${k}" aria-pressed="${k === current}"><span>${i}</span>${l}</button>`).join('')}</nav>`;
   } else {
     app.innerHTML = `<div class="grid"><section>${main}${results}</section><aside class="side">${side}</aside></div>`;
   }
+  coach.refresh();
 }
 
 function renderStats() {
   const p = state.player;
   const items =
-    mode === 'play'
+    isPlay()
       ? [['day', 'Day', `${Math.min(state.day, state.totalDays)}/${state.totalDays}`], ['coins', '🪙 Coins', p.coins], ['score', '⭐ Score', p.score], ['rank', 'Rank', `#${p.rank}`]]
       : [['day', 'Day', `${Math.min(state.day, state.totalDays)}/${state.totalDays}`], ['agents', 'Agents', 26], ['rounds', 'Rounds', state.days.reduce((s, d) => s + d.rounds.length, 0)]];
   statsEl.innerHTML =
     items.map(([k, label, v]) => `<div class="stat" data-stat="${k}"><b>${esc(v)}</b><span>${label}</span></div>`).join('') +
+    `<button class="help" title="Tutorial" aria-label="Play the tutorial">🎓</button>` +
     `<button class="mute" title="Sound" aria-label="Toggle sound">${sfx.muted ? '🔇' : '🔊'}</button>` +
     `<span class="net ${state.network}" title="Where trades are recorded">${state.network === 'testnet' ? 'NEAR testnet' : 'offline'}</span>`;
-  if (mode === 'play') {
+  if (isPlay()) {
     for (const k of ['coins', 'score']) {
       const node = statsEl.querySelector(`[data-stat="${k}"] b`);
       if (shown[k] !== null && shown[k] !== p[k]) countUp(node, shown[k], p[k]);
@@ -302,7 +345,7 @@ function eventsView() {
 }
 
 function stepper(good, key, value, label) {
-  return `<div class="field"><label for="${good}-${key}">${label}</label>
+  return `<div class="field" data-field="${key}"><label for="${good}-${key}">${label}</label>
     <div class="stepper">
       <button type="button" data-step="-1" data-good="${good}" data-key="${key}" aria-label="less ${label}">−</button>
       <input id="${good}-${key}" inputmode="numeric" data-good="${good}" data-key="${key}" value="${value}">
@@ -333,12 +376,12 @@ function stallView() {
             : m.make > 0
               ? `Making ${m.make} costs ${m.make * t.cost[g]} coins now.`
               : '';
-      return `<article class="good ${swarm ? '' : 'quiet'}" style="--c:${COLORS[g]};--i:${i}">
+      return `<article class="good ${swarm ? '' : 'quiet'}" data-good="${g}" style="--c:${COLORS[g]};--i:${i}">
         <header><h3><span class="gicon">${GOOD_ICON[g]}</span>${g}</h3>${t.scarce.includes(g) ? '<span class="pill scarce">scarce</span>' : ''}</header>
         <div class="demand">${swarm ? `<b>${swarm.totalDemand}</b> wanted by ${swarm.buyers} buyers` : '<span class="muted">No swarm today</span>'}</div>
         <div class="facts">
-          <div class="fact"><span>Cost</span><b>${t.cost[g]}</b></div>
-          <div class="fact"><span>Last price</span><b>${last ?? '—'}</b></div>
+          <div class="fact" data-fact="cost"><span>Cost</span><b>${t.cost[g]}</b></div>
+          <div class="fact" data-fact="last"><span>Last price</span><b>${last ?? '—'}</b></div>
           <div class="fact"><span>Stock</span><b>${state.player.stock[g]}</b></div>
         </div>
         <div class="controls">
@@ -379,9 +422,9 @@ function watchView() {
 function boardView() {
   const rows = state.sellers
     .map(
-      (s, i) => `<li class="${s.isPlayer && mode === 'play' ? 'me' : ''}">
+      (s, i) => `<li class="${s.isPlayer && isPlay() ? 'me' : ''}">
         <span class="rank">${['🥇', '🥈', '🥉'][i] ?? i + 1}</span>
-        <span class="who"><b>${esc(s.isPlayer && mode === 'play' ? 'You' : s.name)}</b><small>${esc(s.makes.length === 4 ? 'any good' : s.makes.join(', '))} · ${esc(s.strategy === 'human' ? 'you' : s.strategy)}</small></span>
+        <span class="who"><b>${esc(s.isPlayer && isPlay() ? 'You' : s.name)}</b><small>${esc(s.makes.length === 4 ? 'any good' : s.makes.join(', '))} · ${esc(s.strategy === 'human' ? 'you' : s.strategy)}</small></span>
         <span class="score">${s.score}</span>
       </li>`,
     )
@@ -425,7 +468,7 @@ function roundView(r) {
   const order = [...r.reveals].sort((a, b) => (a.side === b.side ? (a.side === 'sell' ? a.price - b.price : b.price - a.price) : a.side === 'sell' ? -1 : 1));
   const revealed = new Set(r.reveals.map((v) => v.account));
   const missing = r.commits.filter((c) => !revealed.has(c.account));
-  const me = (a) => a === 'player' && mode === 'play';
+  const me = (a) => a === 'player' && isPlay();
   const reveals = order
     .map((v) => {
       const got = filled[v.account] ?? 0;
@@ -436,7 +479,7 @@ function roundView(r) {
     .join('');
   const sealed = r.commits.map((c) => `<li class="${me(c.account) ? 'me' : ''}"><span class="who">${esc(me(c.account) ? 'You' : c.name)}</span><span class="hash" title="${esc(c.hash)}">${esc(short(c.hash))}</span>${txView(c.tx)}</li>`).join('');
   const pays = r.payments.map((p) => `<li><span class="who">${esc(p.fromName)} → ${esc(me(p.to) ? 'You' : p.toName)}</span><span class="mono">🪙 ${p.amount}</span>${txView(p.tx)}</li>`).join('');
-  return `<article class="round" style="--c:${COLORS[r.good]}">
+  return `<article class="round" data-good="${r.good}" style="--c:${COLORS[r.good]}">
     <header><h3>${GOOD_ICON[r.good]} ${r.good}</h3><span class="clear">${r.price === null ? '<span class="muted">no trade</span>' : `<b>${r.units}</b> @ <b>${r.price}</b>`}</span></header>
     <div class="muted small">Swarm of ${r.buyers} wanted ${r.totalDemand} · ${r.commits.length} sealed offers</div>
     ${chartView(r)}
@@ -502,6 +545,7 @@ app.addEventListener('change', (e) => {
   render();
 });
 statsEl.addEventListener('click', (e) => {
+  if (e.target.closest('.help')) return startGame('tutorial');
   if (!e.target.closest('.mute')) return;
   sfx.toggle();
   renderStats();

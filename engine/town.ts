@@ -221,7 +221,7 @@ export class Town {
       }
 
       for (const s of sellersHere) {
-        const q = s.isPlayer ? (player?.asks[good] ?? null) : this.brains.sellerAsk(s, good, view);
+        const q = s.isPlayer ? (player?.asks?.[good] ?? null) : this.brains.sellerAsk(s, good, view);
         if (!q || q.units <= 0 || s.coins < bond) continue;
         // Agents never over-ask. The player's ask is taken as given; RULES.md says an ask above stock is invalid.
         const units = s.isPlayer ? Math.floor(q.units) : Math.min(Math.floor(q.units), s.stock[good]);

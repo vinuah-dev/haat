@@ -48,7 +48,7 @@ async function readJson(req: IncomingMessage): Promise<unknown> {
 async function api(req: IncomingMessage, res: ServerResponse, path: string) {
   if (req.method === 'POST' && path === '/api/games') {
     const body = (await readJson(req)) as { mode?: string; seed?: number };
-    const game = newGame(body.mode === 'watch' ? 'watch' : 'play', body.seed);
+    const game = newGame(body.mode === 'watch' || body.mode === 'tutorial' ? body.mode : 'play', body.seed);
     return send(res, 201, publicState(game, ledger));
   }
   const m = path.match(/^\/api\/games\/([0-9a-f-]{36})(\/day)?$/);

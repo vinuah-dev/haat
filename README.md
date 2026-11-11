@@ -24,6 +24,12 @@ npm start
 
 Open http://localhost:5173.
 
+- **Tutorial (start here):** three guided days in a fixed town, in English or
+  Hinglish. A spotlight shows one control at a time and waits for you to use
+  it. Day 1 you make and sell bread, day 2 you ask too much and sell nothing,
+  day 3 a festival doubles demand and you play on your own.
+  `agents/tutorial.test.ts` checks the town still plays out the way the script
+  says.
 - **Run a stall:** each day choose what to make and what to sell at what lowest
   price, then seal your offers. Ten days; the best stall wins.
 - **Watch the swarm:** 26 agents trade on their own, day after day. Each round

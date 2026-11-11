@@ -304,7 +304,7 @@ export class Scene {
         this.coins(f.x, f.y - 20, st.cx, st.cy - 30 * this.L.scale, Math.min(5, 1 + Math.floor(p.amount / 10)), t);
       }
       sfx?.coin();
-      if (navigator.vibrate && this.layout === 'mobile') navigator.vibrate(18);
+      if (navigator.vibrate && navigator.userActivation?.hasBeenActive && this.layout === 'mobile') navigator.vibrate(18);
       await sleep(t(650));
     }
     this.holding = false;

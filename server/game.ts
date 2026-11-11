@@ -9,10 +9,17 @@ import type { Good } from '../engine/types.ts';
 
 export const GAME_DAYS = 10;
 
+export type Mode = 'play' | 'watch' | 'tutorial';
+
+/** The tutorial replays one fixed town so every lesson turns out as the script says (checked in agents/tutorial.test.ts). */
+export const TUTORIAL_SEED = 3;
+export const TUTORIAL_DAYS = 3;
+
 export interface Game {
   id: string;
   seed: number;
-  mode: 'play' | 'watch';
+  mode: Mode;
+  totalDays: number;
   town: Town;
   view: MarketView | null;
   days: { log: DayLog; txs: DayTxs }[];
@@ -21,10 +28,11 @@ export interface Game {
 
 const games = new Map<string, Game>();
 
-export function newGame(mode: 'play' | 'watch', seed?: number): Game {
-  const s = Number.isInteger(seed) ? seed! : Math.floor(Math.random() * 1_000_000);
+export function newGame(mode: Mode, seed?: number): Game {
+  const s = mode === 'tutorial' ? TUTORIAL_SEED : Number.isInteger(seed) ? seed! : Math.floor(Math.random() * 1_000_000);
   const town = createTown({ seed: s, withPlayer: true, playerStrategy: mode === 'watch' ? 'adaptive' : undefined });
-  const game: Game = { id: randomUUID(), seed: s, mode, town, view: town.beginDay(), days: [], busy: false };
+  const totalDays = mode === 'tutorial' ? TUTORIAL_DAYS : GAME_DAYS;
+  const game: Game = { id: randomUUID(), seed: s, mode, totalDays, town, view: town.beginDay(), days: [], busy: false };
   games.set(game.id, game);
   // Keep memory bounded: a public demo server should not grow forever.
   if (games.size > 200) games.delete(games.keys().next().value!);
@@ -61,7 +69,7 @@ export async function playDay(game: Game, ledger: Ledger, moves?: PlayerMoves): 
   if (game.busy) throw new Error('the last day is still being settled');
   game.busy = true;
   try {
-    const log = game.town.finishDay(game.mode === 'play' ? moves : undefined);
+    const log = game.town.finishDay(game.mode === 'watch' ? undefined : moves);
     let txs: DayTxs;
     try {
       txs = await ledger.recordDay(log);
@@ -69,7 +77,7 @@ export async function playDay(game: Game, ledger: Ledger, moves?: PlayerMoves): 
       txs = { network: ledger.network, rounds: {}, errors: [String((e as Error).message ?? e)] };
     }
     game.days.push({ log, txs });
-    game.view = game.town.day < GAME_DAYS ? game.town.beginDay() : null;
+    game.view = game.town.day < game.totalDays ? game.town.beginDay() : null;
   } finally {
     game.busy = false;
   }
@@ -128,7 +136,7 @@ export function publicState(game: Game, ledger: Ledger) {
     network: ledger.network,
     playerAccountId: ledger.accountId('player'),
     day: t.day,
-    totalDays: GAME_DAYS,
+    totalDays: game.totalDays,
     finished: view === null,
     bond: t.cfg.bond,
     spoilage: t.cfg.spoilage,
