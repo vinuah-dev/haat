@@ -78,7 +78,7 @@ export async function playDay(game: Game, ledger: Ledger, moves?: PlayerMoves): 
 const nameOf = (account: string) => SELLER_NAMES[account] ?? account;
 
 function eventInfo(view: MarketView) {
-  return view.conditions.events.map((e) => ({ name: e.name, label: EVENTS[e.name].label, daysLeft: e.daysLeft }));
+  return view.conditions.events.map((e) => ({ name: e.name, label: EVENTS[e.name].label, daysLeft: e.daysLeft, isNew: e.daysLeft === EVENTS[e.name].days }));
 }
 
 /** Everything the browser needs. Buyers' private max prices are never sent before their round is over. */
@@ -139,11 +139,15 @@ export function publicState(game: Game, ledger: Ledger) {
       cost: view.conditions.cost,
       scarce: view.conditions.scarce,
       lastPrice: view.lastPrice,
-      swarms: view.swarms.map((s) => ({ good: s.good, buyers: s.members.length, totalDemand: s.totalDemand })),
+      // Members are public when a round opens (RULES.md section 4); their max prices are not.
+      swarms: view.swarms.map((s) => ({ good: s.good, buyers: s.members.length, members: s.members, totalDemand: s.totalDemand })),
       rivals: Object.fromEntries(GOODS.map((g) => [g, t.sellers.filter((s) => s.account !== 'player' && s.makes.includes(g)).map((s) => nameOf(s.account))])),
     },
     player: { coins: player.coins, stock: player.stock, score: Town.score(player), rank: sellers.findIndex((s) => s.isPlayer) + 1 },
     sellers,
+    // Stall order for the market scene stays fixed, whatever the ranking.
+    stallOrder: t.sellers.map((s) => s.account),
+    buyers: t.buyers.map((b) => ({ account: b.account, name: nameOf(b.account), role: b.role })),
     days,
   };
 }

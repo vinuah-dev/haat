@@ -2,45 +2,49 @@
 <html lang="en">
 <head>
   <meta charset="utf-8">
-  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+  <meta name="theme-color" content="#2a1d14">
   <title>Haat — a market town run by agents</title>
   <link rel="icon" href="favicon.svg" type="image/svg+xml">
+  <link rel="preconnect" href="https://fonts.googleapis.com">
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+  <link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Fredoka:wght@500;600;700&family=Nunito:wght@400;600;700&display=swap">
   <link rel="stylesheet" href="style.css">
 </head>
 <body>
   <header class="top">
     <div class="brand">
-      <svg class="logo" viewBox="0 0 32 32" aria-hidden="true"><path d="M4 13 16 5l12 8v2H4z" fill="currentColor"/><rect x="6" y="16" width="20" height="11" rx="1.5" fill="none" stroke="currentColor" stroke-width="2.4"/><path d="M12 27v-6h8v6" fill="none" stroke="currentColor" stroke-width="2.4"/></svg>
+      <span class="logo" aria-hidden="true">🏮</span>
       <div>
         <h1>Haat</h1>
         <p class="tag">a market town run by agents</p>
       </div>
     </div>
-    <nav class="modes" role="tablist">
-      <button role="tab" data-mode="play" aria-selected="true">Run a stall</button>
-      <button role="tab" data-mode="watch" aria-selected="false">Watch the swarm</button>
+    <nav class="modes" role="tablist" aria-label="Mode">
+      <button role="tab" data-mode="play" aria-selected="true">🧺 Stall</button>
+      <button role="tab" data-mode="watch" aria-selected="false">👀 Watch</button>
     </nav>
     <div class="stats" id="stats"></div>
   </header>
 
-  <main id="app">
-    <p class="loading">Opening the market…</p>
-  </main>
+  <section id="scene" class="scene" aria-label="Market square"></section>
 
-  <dialog id="end">
-    <div id="end-body"></div>
-  </dialog>
+  <main id="app"></main>
+
+  <div id="title" class="title" hidden></div>
+
+  <dialog id="end"><div id="end-body"></div></dialog>
 
   <template id="how">
     <details class="how">
-      <summary>How Haat works</summary>
+      <summary>📜 How Haat works</summary>
       <ol>
-        <li>Every morning the townsfolk who need the same good band together into a <b>swarm</b>. You see how many units each swarm wants, not what they will pay.</li>
-        <li>You decide what to <b>make</b> (paid now, at today's cost) and what to <b>sell</b>: how many units and your lowest price.</li>
-        <li>Every buyer and seller seals their offer: only a hash goes on the board, with a <span class="mono">5</span>-coin bond. Then everyone reveals.</li>
-        <li>One price clears each market. Cheapest asks sell first, to the buyers who bid highest. Everyone trades at that one price, so pricing below it costs you nothing.</li>
-        <li>Unsold stock carries over, but a quarter of it spoils overnight. Events change costs and demand. The other sellers learn from every round.</li>
-        <li>After 10 days, the stall with the most coins plus stock wins.</li>
+        <li>Every morning the townsfolk who need the same good band together into a <b>swarm</b>. You see how much each swarm wants, not what they will pay.</li>
+        <li>Decide what to <b>make</b> (paid now, at today's cost) and what to <b>sell</b>: how many and your lowest price.</li>
+        <li>Everyone seals their offer: only a hash goes on the board, with a 5-coin bond. Then everyone reveals.</li>
+        <li>One price clears each market. Cheapest asks sell first, to the highest bids. Everyone trades at that one price.</li>
+        <li>A quarter of unsold stock spoils overnight. Events change costs and demand. The other sellers learn every round.</li>
+        <li>After 10 days the stall with the most coins plus stock wins.</li>
       </ol>
     </details>
   </template>

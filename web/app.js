@@ -1,10 +1,15 @@
-// Haat web client. Talks to server/index.ts; all market logic runs on the server.
+// Haat web client. All market logic runs on the server; this file is the game around it.
+
+import { dayIntro, playDay } from './cinema.js';
+import { confetti, countUp, floatText, sleep, toast } from './fx.js';
+import { GOOD_ICON, Scene } from './scene.js';
+import { sfx } from './sfx.js';
 
 const app = document.getElementById('app');
 const statsEl = document.getElementById('stats');
+const titleEl = document.getElementById('title');
 const endDialog = document.getElementById('end');
 const endBody = document.getElementById('end-body');
-
 const COLORS = { grain: 'var(--grain)', bread: 'var(--bread)', tools: 'var(--tools)', cloth: 'var(--cloth)' };
 
 let state = null;
@@ -12,11 +17,25 @@ let mode = 'play';
 let moves = {};
 let shownDay = null;
 let busy = false;
-let autoplay = null;
-let freshDay = null;
+let autoplay = false;
+let tab = 'stall'; // phone only: stall | market | town
+let shown = { coins: null, score: null };
 
 const esc = (s) => String(s).replace(/[&<>"']/g, (c) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' })[c]);
 const short = (h) => (h.length > 14 ? `${h.slice(0, 6)}…${h.slice(-4)}` : h);
+
+// ---------- layout: PC and phone get different screens ----------
+
+const phoneQuery = matchMedia('(max-width: 760px)');
+const layout = () => (phoneQuery.matches ? 'mobile' : 'desktop');
+document.body.dataset.layout = layout();
+const scene = new Scene(document.getElementById('scene'), layout());
+phoneQuery.addEventListener('change', () => {
+  document.body.dataset.layout = layout();
+  scene.setLayout(layout());
+  if (state) syncScene(true);
+  render();
+});
 
 async function call(method, path, body) {
   const res = await fetch(path, { method, headers: { 'content-type': 'application/json' }, body: body ? JSON.stringify(body) : undefined });
@@ -25,12 +44,60 @@ async function call(method, path, body) {
   return data;
 }
 
+function syncScene(gather = false) {
+  scene.setSellers(state.stallOrder, state.sellers, mode === 'play');
+  scene.setBuyers(state.buyers);
+  scene.setEvents(state.today ? state.today.events.map((e) => e.name) : []);
+  scene.setTime(state.finished ? 'dusk' : 'day');
+  if (gather && state.today) scene.gather(state.today.swarms);
+}
+
+// ---------- title screen ----------
+
+async function showTitle() {
+  let saved = null;
+  try { saved = JSON.parse(localStorage.getItem('haat-game') ?? 'null'); } catch {}
+  let resumable = null;
+  if (saved?.id) {
+    try {
+      resumable = await call('GET', `/api/games/${saved.id}`);
+      if (resumable.finished) resumable = null;
+    } catch {}
+  }
+  titleEl.innerHTML = `
+    <div class="title-card">
+      <div class="title-logo">🏮</div>
+      <h1>Haat</h1>
+      <p>A market town run by AI agents with their own wallets.<br>Out-trade them for ten days.</p>
+      <div class="title-buttons">
+        ${resumable ? `<button class="btn big" data-title="continue">Continue · day ${resumable.day} ${resumable.mode === 'watch' ? '(watching)' : ''}</button>` : ''}
+        <button class="btn ${resumable ? 'ghost' : 'big'}" data-title="play">🧺 Run a stall</button>
+        <button class="btn ghost" data-title="watch">👀 Watch the swarm</button>
+      </div>
+      <small>20 buyers · 5 sellers · sealed bids · one price clears each market</small>
+    </div>`;
+  titleEl.hidden = false;
+  titleEl.onclick = (e) => {
+    const what = e.target.closest('[data-title]')?.dataset.title;
+    if (!what) return;
+    sfx.click();
+    titleEl.classList.add('out');
+    setTimeout(() => { titleEl.hidden = true; titleEl.classList.remove('out'); }, 350);
+    if (what === 'continue') loadGame(resumable);
+    else startGame(what);
+  };
+}
+
 // ---------- game flow ----------
+
+function setModeTabs() {
+  document.querySelectorAll('.modes button').forEach((b) => b.setAttribute('aria-selected', String(b.dataset.mode === mode)));
+}
 
 async function startGame(nextMode = mode) {
   stopAuto();
   mode = nextMode;
-  document.querySelectorAll('.modes button').forEach((b) => b.setAttribute('aria-selected', String(b.dataset.mode === mode)));
+  setModeTabs();
   app.innerHTML = '<p class="loading">Opening the market…</p>';
   try {
     state = await call('POST', '/api/games', { mode });
@@ -38,59 +105,103 @@ async function startGame(nextMode = mode) {
     app.innerHTML = `<p class="loading">Could not reach the market: ${esc(e.message)}</p>`;
     return;
   }
-  try { localStorage.setItem('haat-game', JSON.stringify({ id: state.id, mode })); } catch {}
+  try { localStorage.setItem('haat-game', JSON.stringify({ id: state.id })); } catch {}
+  shown = { coins: null, score: null };
   shownDay = null;
+  tab = 'stall';
   resetMoves();
+  syncScene();
+  render();
+  await morning();
+  if (mode === 'watch') startAuto();
+}
+
+function loadGame(s) {
+  state = s;
+  mode = s.mode;
+  setModeTabs();
+  resetMoves();
+  syncScene(true);
   render();
   if (mode === 'watch') startAuto();
 }
 
-async function resume() {
-  let saved = null;
-  try { saved = JSON.parse(localStorage.getItem('haat-game') ?? 'null'); } catch {}
-  if (saved?.id) {
-    try {
-      state = await call('GET', `/api/games/${saved.id}`);
-      mode = state.mode;
-      document.querySelectorAll('.modes button').forEach((b) => b.setAttribute('aria-selected', String(b.dataset.mode === mode)));
-      resetMoves();
-      render();
-      if (mode === 'watch' && !state.finished) startAuto();
-      return;
-    } catch {}
-  }
-  startGame('play');
+async function morning() {
+  scene.setTime('dawn');
+  await sleep(250);
+  scene.setTime('day');
+  await dayIntro(state.today, { speed: mode === 'watch' ? 1.6 : 1 });
+  scene.gather(state.today.swarms);
 }
 
 async function nextDay(body = {}) {
   if (busy || !state || state.finished) return;
   busy = true;
   render();
+  sfx.seal();
+  const before = state.player;
   try {
     state = await call('POST', `/api/games/${state.id}/day`, body);
-    freshDay = state.days[state.days.length - 1]?.day ?? null;
-    shownDay = null;
-    resetMoves();
   } catch (e) {
-    alert(e.message);
-  } finally {
+    toast(`⚠️ ${esc(e.message)}`);
     busy = false;
+    return render();
+  }
+  const day = state.days[state.days.length - 1];
+  const speed = mode === 'watch' ? 1.8 : 1;
+  scene.setTime('dusk');
+  await playDay(day, { me: mode === 'play', speed });
+  scene.setSellers(state.stallOrder, state.sellers, mode === 'play');
+  await scene.settle(day, { speed, sfx });
+  shownDay = null;
+  resetMoves();
+  busy = false;
+  if (mode === 'play') {
+    tab = 'market';
+    summarize(day, before);
   }
   render();
   if (state.finished) {
     stopAuto();
+    scene.setTime('night');
     if (mode === 'play') showEnd();
+    return;
   }
+  scene.setTime('night');
+  await sleep(mode === 'watch' ? 300 : 500);
+  syncScene();
+  if (mode === 'play') tab = 'stall';
+  render();
+  await morning();
 }
 
+function summarize(day, before) {
+  let units = 0;
+  let coins = 0;
+  for (const r of day.rounds) for (const p of r.payments) if (p.to === 'player') { units += p.units ?? 0; coins += p.amount; }
+  if (!units) for (const r of day.rounds) units += r.fills.find((f) => f.account === 'player' && f.side === 'sell')?.units ?? 0;
+  const delta = state.player.score - before.score;
+  const msg = coins
+    ? `🪙 You sold <b>${units}</b> for <b>${coins}</b> coins · score ${delta >= 0 ? '+' : ''}${delta}`
+    : `😶 Nothing sold on day ${day.day}. ${state.player.rank <= 2 ? 'Still near the top.' : 'Try pricing nearer the last price.'}`;
+  toast(msg, 3200);
+  floatText(document.querySelector('[data-stat="score"]'), `${delta >= 0 ? '+' : ''}${delta}`, delta >= 0);
+}
+
+async function autoLoop() {
+  while (autoplay && state && !state.finished) {
+    await nextDay();
+    await sleep(500);
+  }
+}
 function startAuto() {
-  stopAuto();
-  autoplay = setInterval(() => nextDay(), 2600);
+  if (autoplay) return;
+  autoplay = true;
   render();
+  autoLoop();
 }
 function stopAuto() {
-  if (autoplay) clearInterval(autoplay);
-  autoplay = null;
+  autoplay = false;
 }
 
 // ---------- player moves ----------
@@ -99,15 +210,12 @@ function resetMoves() {
   moves = {};
   if (!state?.today) return;
   for (const g of state.goods) {
-    const cost = state.today.cost[g];
     const last = state.today.lastPrice[g];
-    moves[g] = { make: 0, units: state.player.stock[g], price: last ?? cost + 2 };
+    moves[g] = { make: 0, units: state.player.stock[g], price: last ?? state.today.cost[g] + 2 };
   }
 }
 
-function spend() {
-  return state.goods.reduce((s, g) => s + (moves[g]?.make ?? 0) * state.today.cost[g], 0);
-}
+const spend = () => state.goods.reduce((s, g) => s + (moves[g]?.make ?? 0) * state.today.cost[g], 0);
 
 function readMoves() {
   const produce = {};
@@ -120,28 +228,44 @@ function readMoves() {
   return { produce, asks };
 }
 
+function setMove(good, key, value) {
+  const n = Math.max(0, Math.min(999, Math.floor(Number(value)) || 0));
+  const prevHave = state.player.stock[good] + moves[good].make;
+  moves[good][key] = n;
+  if (key === 'make' && moves[good].units === prevHave) moves[good].units = state.player.stock[good] + n;
+}
+
 // ---------- rendering ----------
+
+let lastScreen = '';
 
 function render() {
   if (!state) return;
+  // Entry animations play once per new screen (new day, tab or mode), not on every +/- click.
+  const screen = `${state.id}:${state.day}:${tab}:${mode}:${shownDay}:${layout()}`;
+  app.classList.toggle('fresh', screen !== lastScreen);
+  lastScreen = screen;
   renderStats();
   const latest = state.days[state.days.length - 1];
   const day = shownDay ?? latest?.day ?? null;
-  const shown = state.days.find((d) => d.day === day);
-
+  const shownLog = state.days.find((d) => d.day === day);
   const main = mode === 'play' ? stallView() : watchView();
-  app.innerHTML = `
-    <div class="grid">
-      <section>${main}${shown ? resultsView(shown) : ''}</section>
-      <aside class="side">${boardView()}<div class="panel">${document.getElementById('how').innerHTML}</div></aside>
-    </div>`;
-  if (shown && freshDay === shown.day) {
-    freshDay = null;
-    const rounds = app.querySelector('.rounds');
-    if (rounds) {
-      rounds.classList.add('sealed');
-      setTimeout(() => rounds.classList.remove('sealed'), 900);
-    }
+  const results = shownLog ? resultsView(shownLog) : '<p class="muted empty">No market has run yet. Results show here after the first day.</p>';
+  const side = `${boardView()}<div class="panel">${document.getElementById('how').innerHTML}</div>`;
+
+  if (layout() === 'mobile') {
+    const current = mode === 'watch' && tab === 'stall' ? 'market' : tab;
+    const body = current === 'stall' ? main : current === 'market' ? (mode === 'watch' ? watchBar() : '') + results : side;
+    const tabs = [
+      ...(mode === 'play' ? [['stall', '🧺', 'Stall']] : []),
+      ['market', '⚖️', 'Market'],
+      ['town', '🏆', 'Town'],
+    ];
+    app.innerHTML = `<div class="m-body">${body}</div>
+      ${mode === 'play' && current === 'stall' && state.today ? sealBar() : ''}
+      <nav class="tabbar">${tabs.map(([k, i, l]) => `<button data-tab="${k}" aria-pressed="${k === current}"><span>${i}</span>${l}</button>`).join('')}</nav>`;
+  } else {
+    app.innerHTML = `<div class="grid"><section>${main}${results}</section><aside class="side">${side}</aside></div>`;
   }
 }
 
@@ -149,30 +273,30 @@ function renderStats() {
   const p = state.player;
   const items =
     mode === 'play'
-      ? [
-          ['Day', `${Math.min(state.day, state.totalDays)}/${state.totalDays}`],
-          ['Coins', p.coins],
-          ['Score', p.score],
-          ['Rank', `${p.rank}/${state.sellers.length}`],
-        ]
-      : [
-          ['Day', `${Math.min(state.day, state.totalDays)}/${state.totalDays}`],
-          ['Agents', 26],
-          ['Rounds', state.days.reduce((s, d) => s + d.rounds.length, 0)],
-        ];
+      ? [['day', 'Day', `${Math.min(state.day, state.totalDays)}/${state.totalDays}`], ['coins', '🪙 Coins', p.coins], ['score', '⭐ Score', p.score], ['rank', 'Rank', `#${p.rank}`]]
+      : [['day', 'Day', `${Math.min(state.day, state.totalDays)}/${state.totalDays}`], ['agents', 'Agents', 26], ['rounds', 'Rounds', state.days.reduce((s, d) => s + d.rounds.length, 0)]];
   statsEl.innerHTML =
-    items.map(([k, v]) => `<div class="stat"><b>${esc(v)}</b><span>${k}</span></div>`).join('') +
-    `<span class="net ${state.network}" title="Where trades are recorded">${state.network === 'testnet' ? 'NEAR testnet' : 'offline ledger'}</span>`;
+    items.map(([k, label, v]) => `<div class="stat" data-stat="${k}"><b>${esc(v)}</b><span>${label}</span></div>`).join('') +
+    `<button class="mute" title="Sound" aria-label="Toggle sound">${sfx.muted ? '🔇' : '🔊'}</button>` +
+    `<span class="net ${state.network}" title="Where trades are recorded">${state.network === 'testnet' ? 'NEAR testnet' : 'offline'}</span>`;
+  if (mode === 'play') {
+    for (const k of ['coins', 'score']) {
+      const node = statsEl.querySelector(`[data-stat="${k}"] b`);
+      if (shown[k] !== null && shown[k] !== p[k]) countUp(node, shown[k], p[k]);
+      shown[k] = p[k];
+    }
+  }
 }
 
 function eventsView() {
   if (!state.today) return '';
   const ev = state.today.events;
-  if (ev.length === 0) return `<div class="events"><div class="event">A calm day in town.</div></div>`;
+  const icon = { drought: '☀️', festival: '🎉', 'new-road': '🛤️' };
+  if (!ev.length) return '<div class="events"><div class="event">🌤️ A calm day in town.</div></div>';
   return `<div class="events">${ev
     .map((e) => {
       const [name, rest] = e.label.split(':');
-      return `<div class="event hot"><b>${esc(name)}</b>:${esc(rest)} <span class="muted">· ${e.daysLeft} day${e.daysLeft > 1 ? 's' : ''} left</span></div>`;
+      return `<div class="event hot">${icon[e.name] ?? ''} <b>${esc(name)}</b>:${esc(rest)} <span class="muted">· ${e.daysLeft}d</span></div>`;
     })
     .join('')}</div>`;
 }
@@ -180,84 +304,85 @@ function eventsView() {
 function stepper(good, key, value, label) {
   return `<div class="field"><label for="${good}-${key}">${label}</label>
     <div class="stepper">
-      <button type="button" data-step="-1" data-good="${good}" data-key="${key}" aria-label="less">−</button>
+      <button type="button" data-step="-1" data-good="${good}" data-key="${key}" aria-label="less ${label}">−</button>
       <input id="${good}-${key}" inputmode="numeric" data-good="${good}" data-key="${key}" value="${value}">
-      <button type="button" data-step="1" data-good="${good}" data-key="${key}" aria-label="more">+</button>
+      <button type="button" data-step="1" data-good="${good}" data-key="${key}" aria-label="more ${label}">+</button>
     </div></div>`;
 }
 
 function stallView() {
   if (!state.today) {
-    return `<div class="panel" style="padding:18px"><h2 style="margin:0 0 8px;font-size:20px;text-transform:none;letter-spacing:0;color:var(--ink)">The market is closed</h2>
-      <p class="muted">Ten days are up. Your final score is <b>${state.player.score}</b>, rank ${state.player.rank} of ${state.sellers.length}.</p>
+    return `<div class="panel closed"><h2>The market is closed</h2>
+      <p class="muted">Ten days are up. Final score <b>${state.player.score}</b>, rank ${state.player.rank} of ${state.sellers.length}.</p>
       <button class="btn" data-action="new">Play again</button></div>`;
   }
   const t = state.today;
   const cards = state.goods
-    .map((g) => {
+    .map((g, i) => {
       const swarm = t.swarms.find((s) => s.good === g);
       const m = moves[g];
-      const scarce = t.scarce.includes(g);
       const have = state.player.stock[g] + m.make;
       const over = m.units > have;
       const last = t.lastPrice[g];
       const note = over
-        ? `You only have ${have}. Asking for more than you hold voids your offer and costs the bond.`
+        ? `You only have ${have}. Over-asking voids your offer and costs the bond.`
         : !swarm
-          ? 'Nobody needs this today. Anything you make waits, and a quarter spoils overnight.'
+          ? 'Nobody needs this today. Stock waits, and a quarter spoils overnight.'
           : m.units > 0 && m.price < t.cost[g]
-            ? `Below today's cost of ${t.cost[g]}: you would sell at a loss if the price clears low.`
+            ? `Below today's cost of ${t.cost[g]}: a loss if the price clears low.`
             : m.make > 0
               ? `Making ${m.make} costs ${m.make * t.cost[g]} coins now.`
               : '';
-      return `<article class="good" style="--c:${COLORS[g]}">
-        <header><h3><span class="dot"></span>${g}</h3>${scarce ? '<span class="pill scarce">scarce</span>' : ''}</header>
-        <div class="demand">${swarm ? `<b>${swarm.totalDemand}</b> units wanted by a swarm of ${swarm.buyers}` : '<span class="muted">No swarm today</span>'}</div>
+      return `<article class="good ${swarm ? '' : 'quiet'}" style="--c:${COLORS[g]};--i:${i}">
+        <header><h3><span class="gicon">${GOOD_ICON[g]}</span>${g}</h3>${t.scarce.includes(g) ? '<span class="pill scarce">scarce</span>' : ''}</header>
+        <div class="demand">${swarm ? `<b>${swarm.totalDemand}</b> wanted by ${swarm.buyers} buyers` : '<span class="muted">No swarm today</span>'}</div>
         <div class="facts">
           <div class="fact"><span>Cost</span><b>${t.cost[g]}</b></div>
           <div class="fact"><span>Last price</span><b>${last ?? '—'}</b></div>
-          <div class="fact"><span>Your stock</span><b>${state.player.stock[g]}</b></div>
+          <div class="fact"><span>Stock</span><b>${state.player.stock[g]}</b></div>
         </div>
-        <div class="rivals">Rivals: ${t.rivals[g].map(esc).join(', ')}</div>
         <div class="controls">
           ${stepper(g, 'make', m.make, 'Make')}
-          ${stepper(g, 'units', m.units, 'Sell units')}
-          ${stepper(g, 'price', m.price, 'Lowest price')}
+          ${stepper(g, 'units', m.units, 'Sell')}
+          ${stepper(g, 'price', m.price, 'Min price')}
         </div>
         <div class="note ${over ? 'warn' : ''}">${esc(note)}</div>
+        <div class="rivals">vs ${t.rivals[g].map(esc).join(', ')}</div>
       </article>`;
     })
     .join('');
+  return `${eventsView()}<div class="goods">${cards}</div>${layout() === 'desktop' ? sealBar() : ''}`;
+}
+
+function sealBar() {
+  const t = state.today;
   const cost = spend();
   const left = state.player.coins - cost;
-  return `${eventsView()}
-    <div class="goods">${cards}</div>
-    <div class="actionbar">
-      <div class="sum">Making costs <b>${cost}</b> · coins after: <b style="color:${left < state.bond * 4 ? 'var(--bad)' : 'inherit'}">${left}</b>
-        <span class="muted">· keep ${state.bond * 4} for bonds</span></div>
-      <button class="btn" data-action="submit" ${busy ? 'disabled' : ''}>${busy ? 'Sealing offers…' : `Seal offers for day ${t.day} →`}</button>
+  return `<div class="actionbar">
+      <div class="sum">🪙 <b>${cost}</b> to make · <b class="${left < state.bond * 4 ? 'low' : ''}">${left}</b> left</div>
+      <button class="btn seal" data-action="submit" ${busy ? 'disabled' : ''}>${busy ? '✉️ Sealing…' : `✉️ Seal day ${t.day}`}</button>
+    </div>`;
+}
+
+function watchBar() {
+  return `<div class="watchbar">
+      <button class="btn" data-action="${autoplay ? 'pause' : 'resume'}" ${state.finished ? 'disabled' : ''}>${autoplay ? '⏸ Pause' : '▶ Run'}</button>
+      <button class="btn ghost" data-action="step" ${busy || state.finished || autoplay ? 'disabled' : ''}>Next day</button>
+      <button class="btn ghost" data-action="new">New town</button>
     </div>`;
 }
 
 function watchView() {
-  const running = Boolean(autoplay);
-  return `${eventsView()}
-    <div class="watchbar">
-      <button class="btn" data-action="${running ? 'pause' : 'resume'}" ${state.finished ? 'disabled' : ''}>${running ? 'Pause' : 'Run'}</button>
-      <button class="btn ghost" data-action="step" ${busy || state.finished || running ? 'disabled' : ''}>Next day</button>
-      <button class="btn ghost" data-action="new">New town</button>
-      <p>20 buyer agents and 6 seller agents, each with its own wallet, trading with no human in the loop. Seed ${state.seed}.</p>
-    </div>
-    ${state.days.length === 0 ? '<p class="muted">The first day is about to open…</p>' : ''}`;
+  return `${eventsView()}${watchBar()}<p class="muted watch-note">26 agents, each with its own wallet, trading with no human in the loop. Seed ${state.seed}.</p>`;
 }
 
 function boardView() {
   const rows = state.sellers
     .map(
       (s, i) => `<li class="${s.isPlayer && mode === 'play' ? 'me' : ''}">
-        <span class="rank">${i + 1}</span>
+        <span class="rank">${['🥇', '🥈', '🥉'][i] ?? i + 1}</span>
         <span class="who"><b>${esc(s.isPlayer && mode === 'play' ? 'You' : s.name)}</b><small>${esc(s.makes.length === 4 ? 'any good' : s.makes.join(', '))} · ${esc(s.strategy === 'human' ? 'you' : s.strategy)}</small></span>
-        <span class="score" title="coins ${s.coins} + stock">${s.score}</span>
+        <span class="score">${s.score}</span>
       </li>`,
     )
     .join('');
@@ -288,64 +413,48 @@ function chartView(r) {
     }
     return d;
   };
-  const priceLine = r.price === null ? '' : `<line x1="${pad}" x2="${W - pad}" y1="${y(r.price)}" y2="${y(r.price)}" stroke="var(--ink)" stroke-dasharray="3 3" stroke-width="1"/>
-    <text x="${W - pad}" y="${y(r.price) - 4}" text-anchor="end" font-size="10" fill="var(--ink)">price ${r.price}</text>`;
+  const priceLine = r.price === null ? '' : `<line x1="${pad}" x2="${W - pad}" y1="${y(r.price)}" y2="${y(r.price)}" stroke="var(--ink)" stroke-dasharray="3 3"/><text x="${W - pad}" y="${y(r.price) - 4}" text-anchor="end" font-size="10" fill="var(--ink)">price ${r.price}</text>`;
   const qLine = r.units ? `<line x1="${x(r.units)}" x2="${x(r.units)}" y1="${pad}" y2="${H - pad}" stroke="var(--muted)" stroke-dasharray="2 3"/>` : '';
-  return `<div class="chart reveal"><svg viewBox="0 0 ${W} ${H}" role="img" aria-label="Bids and asks for ${r.good}">
-      ${qLine}${priceLine}
-      <path d="${steps(bids)}" fill="none" stroke="var(--good)" stroke-width="2"/>
-      <path d="${steps(asks)}" fill="none" stroke="var(--accent)" stroke-width="2"/>
-      <text x="${pad + 2}" y="12" font-size="10" fill="var(--good)">bids</text>
-      <text x="${pad + 34}" y="12" font-size="10" fill="var(--accent)">asks</text>
-    </svg></div>`;
+  return `<div class="chart"><svg viewBox="0 0 ${W} ${H}" role="img" aria-label="Bids and asks for ${r.good}">${qLine}${priceLine}
+      <path d="${steps(bids)}" fill="none" stroke="var(--good)" stroke-width="2"/><path d="${steps(asks)}" fill="none" stroke="var(--accent)" stroke-width="2"/>
+      <text x="${pad + 2}" y="12" font-size="10" fill="var(--good)">bids</text><text x="${pad + 34}" y="12" font-size="10" fill="var(--accent)">asks</text></svg></div>`;
 }
 
 function roundView(r) {
   const filled = Object.fromEntries(r.fills.map((f) => [f.account, f.units]));
-  const commits = Object.fromEntries(r.commits.map((c) => [c.account, c]));
   const order = [...r.reveals].sort((a, b) => (a.side === b.side ? (a.side === 'sell' ? a.price - b.price : b.price - a.price) : a.side === 'sell' ? -1 : 1));
   const revealed = new Set(r.reveals.map((v) => v.account));
   const missing = r.commits.filter((c) => !revealed.has(c.account));
   const me = (a) => a === 'player' && mode === 'play';
-
-  const sealed = r.commits
-    .map((c) => `<li class="${me(c.account) ? 'me' : ''}"><span class="who">${esc(me(c.account) ? 'You' : c.name)}</span><span class="hash" title="${esc(c.hash)}">${esc(short(c.hash))}</span>${txView(c.tx)}</li>`)
-    .join('');
   const reveals = order
     .map((v) => {
       const got = filled[v.account] ?? 0;
-      const outcome = !v.valid ? `<span class="bad">${esc(v.reason)}</span>` : got ? `<span class="won">${v.side === 'sell' ? 'sold' : 'got'} ${got}</span>` : `<span class="lost">—</span>`;
-      const label = me(v.account) ? 'You' : v.name;
-      return `<li class="${me(v.account) ? 'me' : ''}"><span class="who ${v.side === 'buy' ? 'side-buy' : ''}">${v.side === 'sell' ? 'Ask' : 'Bid'} · ${esc(label)}</span><span class="mono">${v.units} @ ${v.price}</span>${outcome}</li>`;
+      const outcome = !v.valid ? `<span class="bad">${esc(v.reason)}</span>` : got ? `<span class="won">${v.side === 'sell' ? 'sold' : 'got'} ${got}</span>` : '<span class="lost">—</span>';
+      return `<li class="${me(v.account) ? 'me' : ''}"><span class="who ${v.side === 'buy' ? 'side-buy' : ''}">${v.side === 'sell' ? 'Ask' : 'Bid'} · ${esc(me(v.account) ? 'You' : v.name)}</span><span class="mono">${v.units} @ ${v.price}</span>${outcome}</li>`;
     })
-    .concat(missing.map((c) => `<li><span class="who">${esc(c.name)}</span><span></span><span class="bad">never revealed · bond lost</span></li>`))
+    .concat(missing.map((c) => `<li><span class="who">${esc(c.name)}</span><span></span><span class="bad">no reveal · bond lost</span></li>`))
     .join('');
-  const pays = r.payments.length;
-
+  const sealed = r.commits.map((c) => `<li class="${me(c.account) ? 'me' : ''}"><span class="who">${esc(me(c.account) ? 'You' : c.name)}</span><span class="hash" title="${esc(c.hash)}">${esc(short(c.hash))}</span>${txView(c.tx)}</li>`).join('');
+  const pays = r.payments.map((p) => `<li><span class="who">${esc(p.fromName)} → ${esc(me(p.to) ? 'You' : p.toName)}</span><span class="mono">🪙 ${p.amount}</span>${txView(p.tx)}</li>`).join('');
   return `<article class="round" style="--c:${COLORS[r.good]}">
-    <header><h3>${r.good}</h3><span class="clear reveal">${r.price === null ? '<span class="muted">no trade</span>' : `<b>${r.units}</b> @ <b>${r.price}</b>`}</span></header>
-    <div class="muted" style="font-size:13px">Swarm of ${r.buyers} wanted ${r.totalDemand} · ${r.commits.length} sealed offers</div>
+    <header><h3>${GOOD_ICON[r.good]} ${r.good}</h3><span class="clear">${r.price === null ? '<span class="muted">no trade</span>' : `<b>${r.units}</b> @ <b>${r.price}</b>`}</span></header>
+    <div class="muted small">Swarm of ${r.buyers} wanted ${r.totalDemand} · ${r.commits.length} sealed offers</div>
     ${chartView(r)}
-    <div class="phase">Sealed</div><ul class="offers">${sealed}</ul>
-    <div class="reveal"><div class="phase">Revealed</div><ul class="offers">${reveals}</ul>
-    ${pays ? `<div class="phase">Settled · ${pays} payment${pays > 1 ? 's' : ''}</div><ul class="offers">${r.payments
-      .map((p) => `<li><span class="who">${esc(p.fromName)} →${esc(me(p.to) ? 'You' : p.toName)}</span><span class="mono">${p.amount}</span>${txView(p.tx)}</li>`)
-      .join('')}</ul>` : ''}</div>
+    <div class="phase">Revealed</div><ul class="offers">${reveals}</ul>
+    ${pays ? `<div class="phase">Paid · ${r.payments.length}</div><ul class="offers">${pays}</ul>` : ''}
+    <details class="sealed"><summary>Sealed hashes</summary><ul class="offers">${sealed}</ul></details>
   </article>`;
 }
 
 function resultsView(d) {
-  const picks = state.days
-    .map((x) => `<button data-day="${x.day}" aria-pressed="${x.day === d.day}">${x.day}</button>`)
-    .join('');
+  const picks = state.days.map((x) => `<button data-day="${x.day}" aria-pressed="${x.day === d.day}">${x.day}</button>`).join('');
   const chain = d.chain.errors.length
     ? `<p class="chain-note err">Chain: ${esc(d.chain.errors.join('; '))}</p>`
     : d.chain.network === 'testnet'
-      ? '<p class="chain-note">Every commit, reveal and payment above is a NEAR testnet transaction signed by that agent\'s own account. Click a hash to open it.</p>'
-      : '<p class="chain-note">Offline ledger: ids are local. Run the server with HAAT_CHAIN=testnet to sign every step on NEAR testnet.</p>';
+      ? '<p class="chain-note">Every commit, reveal and payment is a NEAR testnet transaction signed by that agent. Click a hash to open it.</p>'
+      : '<p class="chain-note">Offline ledger: ids are local. Run with HAAT_CHAIN=testnet to sign every step on NEAR testnet.</p>';
   return `<section class="results">
-    <div class="results-head"><h2>Day ${d.day} at the market</h2><div class="daypick" aria-label="Pick a day">${picks}</div>
-      <span class="muted">${esc(d.events.map((e) => e.split(':')[0]).join(', ') || 'Calm')}</span></div>
+    <div class="results-head"><h2>Day ${d.day} at the market</h2><div class="daypick" aria-label="Pick a day">${picks}</div></div>
     <div class="rounds">${d.rounds.map(roundView).join('') || '<p class="muted">No swarms formed this day.</p>'}</div>
     ${chain}
   </section>`;
@@ -353,38 +462,30 @@ function resultsView(d) {
 
 function showEnd() {
   const rank = state.player.rank;
-  const n = state.sellers.length;
-  const headline = rank === 1 ? 'You ran the best stall in town.' : rank <= 3 ? 'A solid run at the haat.' : 'The agents out-traded you this time.';
-  endBody.innerHTML = `<h2>${headline}</h2>
-    <div class="big">${state.player.score}</div><p class="muted">final score · rank ${rank} of ${n}</p>
-    <ol>${state.sellers.map((s) => `<li>${esc(s.isPlayer ? 'You' : s.name)} · ${s.score}</li>`).join('')}</ol>
-    <div class="row"><button class="btn" data-end="again">Play again</button><button class="btn ghost" data-end="close">Look at the rounds</button></div>`;
+  const top = rank <= 3;
+  const headline = rank === 1 ? 'Best stall in town!' : top ? 'A solid run at the haat.' : 'The agents out-traded you.';
+  endBody.innerHTML = `<div class="trophy">${['🏆', '🥈', '🥉'][rank - 1] ?? '🧺'}</div><h2>${headline}</h2>
+    <div class="big">${state.player.score}</div><p class="muted">final score · rank ${rank} of ${state.sellers.length}</p>
+    <ol>${state.sellers.map((s) => `<li class="${s.isPlayer ? 'me' : ''}">${esc(s.isPlayer ? 'You' : s.name)} <span>${s.score}</span></li>`).join('')}</ol>
+    <div class="row"><button class="btn" data-end="again">Play again</button><button class="btn ghost" data-end="close">See the rounds</button></div>`;
   endDialog.showModal();
+  if (top) { confetti(); sfx.fanfare(); } else sfx.sad();
 }
 
-// ---------- events ----------
+// ---------- input ----------
 
-function setMove(good, key, value) {
-  const n = Math.max(0, Math.min(999, Math.floor(Number(value)) || 0));
-  const prevHave = state.player.stock[good] + moves[good].make;
-  moves[good][key] = n;
-  // Keep "sell" in step with what you make, unless you set it yourself to something else.
-  if (key === 'make' && moves[good].units === prevHave) moves[good].units = state.player.stock[good] + n;
-}
-
-// One delegated listener survives every re-render, so fast clicks are never lost.
 app.addEventListener('click', (e) => {
   const step = e.target.closest('[data-step]');
   if (step) {
     const { good, key } = step.dataset;
     setMove(good, key, moves[good][key] + Number(step.dataset.step));
+    sfx.click();
     return render();
   }
+  const t = e.target.closest('[data-tab]');
+  if (t) { tab = t.dataset.tab; sfx.click(); return render(); }
   const day = e.target.closest('[data-day]');
-  if (day) {
-    shownDay = Number(day.dataset.day);
-    return render();
-  }
+  if (day) { shownDay = Number(day.dataset.day); return render(); }
   const act = e.target.closest('[data-action]');
   if (!act || act.disabled) return;
   const a = act.dataset.action;
@@ -400,7 +501,11 @@ app.addEventListener('change', (e) => {
   setMove(inp.dataset.good, inp.dataset.key, inp.value);
   render();
 });
-
+statsEl.addEventListener('click', (e) => {
+  if (!e.target.closest('.mute')) return;
+  sfx.toggle();
+  renderStats();
+});
 document.querySelectorAll('.modes button').forEach((b) => b.addEventListener('click', () => b.dataset.mode !== mode && startGame(b.dataset.mode)));
 endBody.addEventListener('click', (e) => {
   const what = e.target.closest('[data-end]')?.dataset.end;
@@ -409,4 +514,4 @@ endBody.addEventListener('click', (e) => {
   if (what === 'again') startGame('play');
 });
 
-resume();
+showTitle();

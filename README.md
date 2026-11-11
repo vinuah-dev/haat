@@ -30,6 +30,14 @@ Open http://localhost:5173.
   shows the sealed hashes, the reveals, the bid and ask curves, the clearing
   price and every payment.
 
+The market square is animated: villagers gather under their swarm's banner,
+sealed cards are dealt and flipped, the clearing price is stamped, and buyers
+walk to the stalls they bought from while coins fly over. Events change the
+scene (drought dries the hills, a festival hangs bunting, a new road brings
+carts). PC and phone get different layouts: a wide street with a side board
+on PC; a two-row square, a bottom tab bar and a bottom-sheet round with
+vibration on phones. Sound is synthesized in the browser and can be muted.
+
 ## How a day works
 
 1. Buyers who need the same good form a swarm. Only total demand is public.
