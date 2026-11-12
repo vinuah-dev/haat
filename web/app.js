@@ -54,6 +54,12 @@ phoneQuery.addEventListener('change', () => {
 });
 
 async function call(method, path, body) {
+  // Static build (Vercel): the engine runs in this page instead of on a server.
+  if (window.HaatLocal) {
+    const { status, data } = await window.HaatLocal.call(method, path, body);
+    if (status >= 400) throw new Error(data.error ?? `HTTP ${status}`);
+    return data;
+  }
   const res = await fetch(path, { method, headers: { 'content-type': 'application/json' }, body: body ? JSON.stringify(body) : undefined });
   const data = await res.json();
   if (!res.ok) throw new Error(data.error ?? `HTTP ${res.status}`);

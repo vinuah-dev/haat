@@ -1,4 +1,3 @@
-import { randomUUID } from 'node:crypto';
 import { createTown, SELLER_NAMES } from '../agents/roster.ts';
 import type { DayTxs, Ledger } from '../chain/ledger.ts';
 import { EVENTS } from '../engine/economy.ts';
@@ -28,11 +27,11 @@ export interface Game {
 
 const games = new Map<string, Game>();
 
-export function newGame(mode: Mode, seed?: number): Game {
+export function newGame(mode: Mode, seed?: number, id: string = crypto.randomUUID()): Game {
   const s = mode === 'tutorial' ? TUTORIAL_SEED : Number.isInteger(seed) ? seed! : Math.floor(Math.random() * 1_000_000);
   const town = createTown({ seed: s, withPlayer: true, playerStrategy: mode === 'watch' ? 'adaptive' : undefined });
   const totalDays = mode === 'tutorial' ? TUTORIAL_DAYS : GAME_DAYS;
-  const game: Game = { id: randomUUID(), seed: s, mode, totalDays, town, view: town.beginDay(), days: [], busy: false };
+  const game: Game = { id, seed: s, mode, totalDays, town, view: town.beginDay(), days: [], busy: false };
   games.set(game.id, game);
   // Keep memory bounded: a public demo server should not grow forever.
   if (games.size > 200) games.delete(games.keys().next().value!);

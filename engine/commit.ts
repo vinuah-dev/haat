@@ -1,6 +1,6 @@
-import { createHash } from 'node:crypto';
+import { sha256Hex } from './sha256.ts';
 
 /** sha256(round_id | account | units | price | salt), hex. Only this goes on chain during the commit phase. */
 export function commitHash(roundId: string, account: string, units: number, price: number, salt: string): string {
-  return createHash('sha256').update(`${roundId}|${account}|${units}|${price}|${salt}`).digest('hex');
+  return sha256Hex(`${roundId}|${account}|${units}|${price}|${salt}`);
 }

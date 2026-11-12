@@ -10,9 +10,13 @@
   "scripts": {
     "test": "node --test \"engine/**/*.test.ts\" \"agents/**/*.test.ts\"",
     "sim": "node sim/run.ts",
-    "start": "node server/index.ts"
+    "start": "node server/index.ts",
+    "build": "node scripts/build.mjs"
   },
   "dependencies": {
     "near-api-js": "7.3.1"
+  },
+  "devDependencies": {
+    "esbuild": "0.28.2"
   }
 }
