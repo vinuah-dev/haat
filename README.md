@@ -12,7 +12,9 @@ The market rules are in [RULES.md](RULES.md). They are the spec the code follows
 
 ## Play
 
-Needs Node 24 or newer.
+**Live: https://haat-ten.vercel.app** (no install; the engine runs in your browser).
+
+To run it yourself, you need Node 24 or newer.
 
 ```bash
 npm install
@@ -22,7 +24,10 @@ npm install
 npm start
 ```
 
-Open http://localhost:5173.
+Open http://localhost:5173. `npm run build` makes the static version in `dist/`
+(the one on Vercel), where the engine is bundled into the page and a game is
+saved as its seed plus your moves, replayed on reload. The NEAR testnet mode
+needs the Node server.
 
 - **Tutorial (start here):** three guided days in a fixed town, in English or
   Hinglish. A spotlight shows one control at a time and waits for you to use

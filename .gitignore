@@ -5,3 +5,6 @@ sim/out/
 chain/.keys.json
 dist/
 .vercel/
+
+.vercel
+.env*
